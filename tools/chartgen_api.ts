@@ -6,10 +6,10 @@
  * needs to know or pass secrets.
  *
  * Usage (skill only passes business data):
- *   npx tsx tools/chartgen_api.ts submit "<query>"
+ *   npx tsx tools/chartgen_api.ts submit "<query>" [file1 file2 ...]
  *   npx tsx tools/chartgen_api.ts poll   <task_id>
  *   npx tsx tools/chartgen_api.ts wait   <task_id>
- *   npx tsx tools/chartgen_api.ts run    "<query>"
+ *   npx tsx tools/chartgen_api.ts run    "<query>" [file1 file2 ...]
  */
 
 import * as https from "https";
@@ -24,6 +24,8 @@ const BASE_URL =
 const POLL_INTERVAL_MS = 20_000;
 const MAX_POLLS = 30;
 
+const ALLOWED_EXTENSIONS = new Set([".csv", ".xls", ".xlsx", ".tsv"]);
+
 // ---------------------------------------------------------------------------
 // API key resolution — tool reads it, skill never touches it
 // ---------------------------------------------------------------------------
@@ -34,7 +36,12 @@ function resolveApiKey(): string | null {
   const home = os.homedir();
   const candidates = [
     process.env.OPENCLAW_STATE_DIR
-      ? path.join(process.env.OPENCLAW_STATE_DIR, "skills", "chartgen", "config.json")
+      ? path.join(
+          process.env.OPENCLAW_STATE_DIR,
+          "skills",
+          "chartgen",
+          "config.json",
+        )
       : "",
     path.join(home, ".openclaw", "skills", "chartgen", "config.json"),
     path.join(home, ".config", "chartgen", "api_key"),
@@ -46,7 +53,8 @@ function resolveApiKey(): string | null {
       const raw = fs.readFileSync(file, "utf-8").trim();
       if (file.endsWith(".json")) {
         const obj = JSON.parse(raw);
-        const key = obj.api_key ?? obj.apiKey ?? obj.token ?? obj.access_token;
+        const key =
+          obj.api_key ?? obj.apiKey ?? obj.token ?? obj.access_token;
         if (key) return String(key);
       } else {
         if (raw.length > 0) return raw;
@@ -93,14 +101,74 @@ function ensureDir(dir: string): boolean {
 }
 
 // ---------------------------------------------------------------------------
-// HTTP helper
+// File validation
+// ---------------------------------------------------------------------------
+
+interface FileValidation {
+  valid: boolean;
+  error?: string;
+  files?: Array<{ filePath: string; fileName: string; content: Buffer }>;
+}
+
+function validateFiles(filePaths: string[]): FileValidation {
+  const files: FileValidation["files"] = [];
+
+  for (const fp of filePaths) {
+    const resolved = path.resolve(fp);
+    const ext = path.extname(resolved).toLowerCase();
+
+    if (!ALLOWED_EXTENSIONS.has(ext)) {
+      return {
+        valid: false,
+        error:
+          `Unsupported file type "${ext}" for file "${path.basename(resolved)}". ` +
+          `Supported types: ${[...ALLOWED_EXTENSIONS].join(", ")}`,
+      };
+    }
+
+    try {
+      fs.accessSync(resolved, fs.constants.R_OK);
+    } catch {
+      return {
+        valid: false,
+        error: `File not accessible: "${resolved}"`,
+      };
+    }
+
+    const stat = fs.statSync(resolved);
+    if (!stat.isFile()) {
+      return {
+        valid: false,
+        error: `Not a file: "${resolved}"`,
+      };
+    }
+
+    if (stat.size === 0) {
+      return {
+        valid: false,
+        error: `File is empty: "${resolved}"`,
+      };
+    }
+
+    files!.push({
+      filePath: resolved,
+      fileName: path.basename(resolved),
+      content: fs.readFileSync(resolved),
+    });
+  }
+
+  return { valid: true, files };
+}
+
+// ---------------------------------------------------------------------------
+// HTTP helpers
 // ---------------------------------------------------------------------------
 
 interface RequestOptions {
   url: string;
   method?: "GET" | "POST";
   headers?: Record<string, string>;
-  body?: string;
+  body?: string | Buffer;
   timeoutMs?: number;
 }
 
@@ -143,6 +211,71 @@ function request(
 }
 
 // ---------------------------------------------------------------------------
+// Multipart upload
+// ---------------------------------------------------------------------------
+
+interface UploadResult {
+  fileIds?: number[];
+  error?: string;
+}
+
+async function uploadFiles(
+  apiKey: string,
+  fileInfos: Array<{ fileName: string; content: Buffer }>,
+): Promise<UploadResult> {
+  const boundary =
+    "----ChartGenBoundary" +
+    Date.now().toString(36) +
+    Math.random().toString(36).slice(2);
+
+  const parts: Buffer[] = [];
+  for (const f of fileInfos) {
+    const header =
+      `--${boundary}\r\n` +
+      `Content-Disposition: form-data; name="files"; filename="${f.fileName}"\r\n` +
+      `Content-Type: application/octet-stream\r\n\r\n`;
+    parts.push(Buffer.from(header, "utf-8"));
+    parts.push(f.content);
+    parts.push(Buffer.from("\r\n", "utf-8"));
+  }
+  parts.push(Buffer.from(`--${boundary}--\r\n`, "utf-8"));
+
+  const body = Buffer.concat(parts);
+
+  try {
+    const res = await request({
+      url: `${BASE_URL}/api/usl-service/fileTable/upload`,
+      method: "POST",
+      headers: {
+        "Content-Type": `multipart/form-data; boundary=${boundary}`,
+        "access-token": apiKey,
+        "Content-Length": String(body.length),
+      },
+      body,
+      timeoutMs: 60_000,
+    });
+
+    if (res.status >= 400) {
+      const detail =
+        res.body.length > 0 && res.body.length < 500
+          ? ` — ${res.body}`
+          : "";
+      return { error: `Upload failed: HTTP ${res.status}${detail}` };
+    }
+
+    const json = JSON.parse(res.body);
+    if (json.code === "00000" && Array.isArray(json.data)) {
+      return { fileIds: json.data.map((f: { id: number }) => f.id) };
+    }
+    return {
+      error: `Upload failed: ${json.desc || json.message || "unexpected response"}`,
+    };
+  } catch (err: unknown) {
+    return { error: `Upload failed: ${(err as Error).message}` };
+  }
+}
+
+// ---------------------------------------------------------------------------
 // API methods
 // ---------------------------------------------------------------------------
 
@@ -170,8 +303,29 @@ interface PollResult {
   error?: string;
 }
 
-async function submit(apiKey: string, query: string): Promise<SubmitResult> {
-  const body = JSON.stringify({ query });
+async function submit(
+  apiKey: string,
+  query: string,
+  filePaths?: string[],
+): Promise<SubmitResult> {
+  let fileIds: number[] = [];
+
+  if (filePaths && filePaths.length > 0) {
+    const validation = validateFiles(filePaths);
+    if (!validation.valid) {
+      return { error: validation.error, status: "error" };
+    }
+
+    const uploadRes = await uploadFiles(apiKey, validation.files!);
+    if (uploadRes.error) {
+      return { error: uploadRes.error, status: "error" };
+    }
+    fileIds = uploadRes.fileIds ?? [];
+  }
+
+  const payload: Record<string, unknown> = { query };
+  if (fileIds.length > 0) payload.file_ids = fileIds;
+  const body = JSON.stringify(payload);
 
   try {
     const res = await request({
@@ -243,7 +397,9 @@ function saveArtifacts(result: PollResult): PollResult {
 
   for (const art of result.artifacts) {
     if (art.image_base64) {
-      const tag = art.artifact_id ? String(art.artifact_id) : String(Date.now());
+      const tag = art.artifact_id
+        ? String(art.artifact_id)
+        : String(Date.now());
       const saved = saveBase64(art.image_base64, tag);
       if (saved) {
         art.image_path = saved;
@@ -292,8 +448,12 @@ async function waitForTask(
   } as PollResult;
 }
 
-async function run(apiKey: string, query: string): Promise<PollResult> {
-  const submitRes = await submit(apiKey, query);
+async function run(
+  apiKey: string,
+  query: string,
+  filePaths?: string[],
+): Promise<PollResult> {
+  const submitRes = await submit(apiKey, query, filePaths);
   if (submitRes.error) return { error: submitRes.error, status: "error" };
 
   const taskId = submitRes.task_id;
@@ -330,12 +490,18 @@ async function main(): Promise<void> {
 
   switch (cmd) {
     case "submit": {
-      const query = args[0];
+      const [query, ...filePaths] = args;
       if (!query) {
-        process.stderr.write('Usage: chartgen_api.ts submit "<query>"\n');
+        process.stderr.write(
+          'Usage: chartgen_api.ts submit "<query>" [file1 file2 ...]\n',
+        );
         process.exit(1);
       }
-      result = await submit(apiKey!, query);
+      result = await submit(
+        apiKey!,
+        query,
+        filePaths.length > 0 ? filePaths : undefined,
+      );
       break;
     }
     case "poll": {
@@ -357,22 +523,31 @@ async function main(): Promise<void> {
       break;
     }
     case "run": {
-      const query = args[0];
+      const [query, ...filePaths] = args;
       if (!query) {
-        process.stderr.write('Usage: chartgen_api.ts run "<query>"\n');
+        process.stderr.write(
+          'Usage: chartgen_api.ts run "<query>" [file1 file2 ...]\n',
+        );
         process.exit(1);
       }
-      result = await run(apiKey!, query);
+      result = await run(
+        apiKey!,
+        query,
+        filePaths.length > 0 ? filePaths : undefined,
+      );
       break;
     }
     default:
       process.stderr.write(
         `ChartGen AI API Tool  (${BASE_URL})\n\n` +
           "Commands:\n" +
-          '  submit  "<query>"   Submit task, returns task_id\n' +
-          "  poll    <task_id>   Single status check\n" +
-          "  wait    <task_id>   Poll until done (for background exec)\n" +
-          '  run     "<query>"   submit + wait in one shot\n\n' +
+          '  submit  "<query>" [file1 file2 ...]   Submit task\n' +
+          "  poll    <task_id>                      Single status check\n" +
+          "  wait    <task_id>                      Poll until done\n" +
+          '  run     "<query>" [file1 file2 ...]   submit + wait\n\n' +
+          "Supported file types: " +
+          [...ALLOWED_EXTENSIONS].join(", ") +
+          "\n\n" +
           "API key is read automatically from:\n" +
           "  1. CHARTGEN_API_KEY environment variable\n" +
           "  2. ~/.openclaw/skills/chartgen/config.json\n" +

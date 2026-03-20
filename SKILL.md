@@ -44,10 +44,16 @@ They can also upload CSV/Excel files for data-driven visualizations.
 
 | Command | What to pass | Purpose |
 |---------|-------------|---------|
-| `submit` | `"<query>"` | Submit a request, returns `task_id` instantly |
+| `submit` | `"<query>"` `[file1 file2 ...]` | Submit a request, returns `task_id` instantly |
 | `poll` | `<task_id>` | Single status check |
 | `wait` | `<task_id>` | Poll repeatedly until done — for background exec |
-| `run` | `"<query>"` | `submit` + `wait` in one shot |
+| `run` | `"<query>"` `[file1 file2 ...]` | `submit` + `wait` in one shot |
+
+File paths after the query are optional. When provided, the tool automatically
+uploads the files and attaches them to the request for data analysis.
+Supported file types: `.csv`, `.xls`, `.xlsx`, `.tsv`.
+If any file has an unsupported type or is not accessible, the tool returns an
+error immediately — relay the error message to the user so they can fix it.
 
 All commands print JSON to stdout. Errors are returned as JSON with `"error"`.
 
@@ -70,8 +76,16 @@ Respond in the same language the user is using.
 ## STEP 2 — Submit the Request
 
 ```bash
+# Text-only request
 npx tsx tools/chartgen_api.ts submit "<user_query>"
+
+# Request with data files (user attached CSV/Excel)
+npx tsx tools/chartgen_api.ts submit "<user_query>" /path/to/data.csv /path/to/more.xlsx
 ```
+
+If the user attaches files in their message, pass the local file paths after
+the query. The tool validates file types, uploads them, and includes them
+in the analysis request.
 
 Each request creates a new, independent task.
 
@@ -125,6 +139,11 @@ If the output contains `"error"`, check the message and respond accordingly:
 - **`"HTTP 429"`** → Rate limited. Tell the user to wait and try again.
 - **`"HTTP 5xx"`** → Service down. Suggest retrying in a few minutes.
 - **`"Connection failed"`** → Network issue. Suggest retrying in a moment.
+- **`"Unsupported file type"`** → Tell the user which file types are
+  supported (CSV, XLS, XLSX, TSV) and ask them to re-send with a valid file.
+- **`"File not accessible"`** → The file path does not exist or is not
+  readable. Ask the user to verify the file path.
+- **`"Upload failed"`** → File upload to server failed. Suggest retrying.
 
 ---
 
