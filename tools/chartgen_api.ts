@@ -301,6 +301,11 @@ interface PollResult {
   }>;
   progress?: string;
   error?: string;
+  // Fields from gateway that we strip before output
+  session_id?: unknown;
+  round_id?: unknown;
+  user_query?: unknown;
+  round_data_raw?: unknown;
 }
 
 async function submit(
@@ -363,7 +368,7 @@ async function poll(apiKey: string, taskId: string): Promise<PollResult> {
       return { error: `HTTP ${res.status}`, status: "error" };
     }
     const result: PollResult = JSON.parse(res.body);
-    return saveArtifacts(result);
+    return cleanResult(result);
   } catch (err: unknown) {
     return {
       error: `Poll failed: ${(err as Error).message}`,
@@ -392,7 +397,7 @@ function saveBase64(dataUri: string, tag?: string): string | null {
   }
 }
 
-function saveArtifacts(result: PollResult): PollResult {
+function cleanResult(result: PollResult): PollResult {
   if (result.status !== "finished" || !result.artifacts) return result;
 
   for (const art of result.artifacts) {
@@ -403,10 +408,17 @@ function saveArtifacts(result: PollResult): PollResult {
       const saved = saveBase64(art.image_base64, tag);
       if (saved) {
         art.image_path = saved;
-        delete art.image_base64;
       }
     }
+    delete art.image_base64;
+    delete art.raw_data;
   }
+
+  delete result.session_id;
+  delete result.round_id;
+  delete result.user_query;
+  delete result.round_data_raw;
+
   return result;
 }
 
