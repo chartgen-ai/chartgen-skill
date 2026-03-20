@@ -101,29 +101,19 @@ openclaw skills refresh
 3. Select **"API"**
 4. Generate and copy your API key
 
-### 2. Configure the Skill
+### 2. Configure the API Key
+
+Set the key using **one** of these methods (the tool reads it automatically):
 
 ```bash
-openclaw config set chartgen.api_key "your-api-key-here"
+# Option A: environment variable
+export CHARTGEN_API_KEY="your-api-key-here"
+
+# Option B: save to a file
+echo "your-api-key-here" > ~/.chartgen/api_key
 ```
 
-### Advanced Configuration (Optional)
-
-| Setting | Default | Description |
-|---------|---------|-------------|
-| `api_key` | *(required)* | Your ChartGen AI API key |
-| `api_base_url` | `https://deepanalysis.digitforce.com` | API endpoint URL |
-| `poll_interval_seconds` | `20` | Seconds between status checks |
-| `max_poll_attempts` | `30` | Max polling attempts (~10 min timeout) |
-| `default_lang` | `en` | Default language for generated content |
-
-```bash
-# Example: set language to Chinese
-openclaw config set chartgen.default_lang "zh-CN"
-
-# Example: adjust polling interval
-openclaw config set chartgen.poll_interval_seconds 15
-```
+That's it — the skill and tool handle everything else internally.
 
 ---
 
@@ -149,12 +139,6 @@ openclaw config set chartgen.poll_interval_seconds 15
 
 > "Analyze this sales data and create a comprehensive report with charts and insights"
 > *(attach a CSV/Excel file)*
-
-### Follow-up Modifications
-
-> "Change the color theme to blue"
-> "Switch it to a bar chart"
-> "Add a trend line"
 
 ---
 

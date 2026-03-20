@@ -2,19 +2,14 @@
  * ChartGen AI API helper — portable tool for OpenClaw skill.
  *
  * Zero external dependencies — uses only Node.js built-ins.
+ * API key and URL are read from environment / config — the skill never
+ * needs to know or pass secrets.
  *
- * When a task finishes, artifact images are automatically saved to
- * the OpenClaw media directory (~/.openclaw/media/) and the
- * `image_base64` field is replaced with `image_path` (full local path)
- * so the agent can send the file directly via `message send`.
- *
- * Usage:
- *   npx tsx tools/chartgen_api.ts submit  <base_url> <api_key> <query> [lang] [session_id]
- *   npx tsx tools/chartgen_api.ts poll    <base_url> <api_key> <task_id>
- *   npx tsx tools/chartgen_api.ts wait    <base_url> <api_key> <task_id>
- *       (poll repeatedly until finished — designed for background exec)
- *   npx tsx tools/chartgen_api.ts run     <base_url> <api_key> <query> [lang] [session_id]
- *       (submit + wait combined — one-shot convenience)
+ * Usage (skill only passes business data):
+ *   npx tsx tools/chartgen_api.ts submit "<query>"
+ *   npx tsx tools/chartgen_api.ts poll   <task_id>
+ *   npx tsx tools/chartgen_api.ts wait   <task_id>
+ *   npx tsx tools/chartgen_api.ts run    "<query>"
  */
 
 import * as https from "https";
@@ -24,8 +19,44 @@ import * as os from "os";
 import * as path from "path";
 import { URL } from "url";
 
+const BASE_URL =
+  process.env.CHARTGEN_API_URL ?? "https://test-deepanalysis.digitforce.com";
 const POLL_INTERVAL_MS = 20_000;
 const MAX_POLLS = 30;
+
+// ---------------------------------------------------------------------------
+// API key resolution — tool reads it, skill never touches it
+// ---------------------------------------------------------------------------
+
+function resolveApiKey(): string | null {
+  if (process.env.CHARTGEN_API_KEY) return process.env.CHARTGEN_API_KEY;
+
+  const home = os.homedir();
+  const candidates = [
+    process.env.OPENCLAW_STATE_DIR
+      ? path.join(process.env.OPENCLAW_STATE_DIR, "skills", "chartgen", "config.json")
+      : "",
+    path.join(home, ".openclaw", "skills", "chartgen", "config.json"),
+    path.join(home, ".config", "chartgen", "api_key"),
+    path.join(home, ".chartgen", "api_key"),
+  ].filter(Boolean);
+
+  for (const file of candidates) {
+    try {
+      const raw = fs.readFileSync(file, "utf-8").trim();
+      if (file.endsWith(".json")) {
+        const obj = JSON.parse(raw);
+        const key = obj.api_key ?? obj.apiKey ?? obj.token ?? obj.access_token;
+        if (key) return String(key);
+      } else {
+        if (raw.length > 0) return raw;
+      }
+    } catch {
+      // file not found or unreadable — try next
+    }
+  }
+  return null;
+}
 
 // ---------------------------------------------------------------------------
 // OpenClaw media directory resolution
@@ -62,7 +93,7 @@ function ensureDir(dir: string): boolean {
 }
 
 // ---------------------------------------------------------------------------
-// HTTP helper — works with both http and https, no external deps
+// HTTP helper
 // ---------------------------------------------------------------------------
 
 interface RequestOptions {
@@ -73,7 +104,9 @@ interface RequestOptions {
   timeoutMs?: number;
 }
 
-function request(opts: RequestOptions): Promise<{ status: number; body: string }> {
+function request(
+  opts: RequestOptions,
+): Promise<{ status: number; body: string }> {
   return new Promise((resolve, reject) => {
     const parsed = new URL(opts.url);
     const lib = parsed.protocol === "https:" ? https : http;
@@ -104,9 +137,7 @@ function request(opts: RequestOptions): Promise<{ status: number; body: string }
       reject(new Error("Request timed out"));
     });
 
-    if (opts.body) {
-      req.write(opts.body);
-    }
+    if (opts.body) req.write(opts.body);
     req.end();
   });
 }
@@ -117,7 +148,6 @@ function request(opts: RequestOptions): Promise<{ status: number; body: string }
 
 interface SubmitResult {
   task_id?: string;
-  session_id?: string;
   status?: string;
   poll_url?: string;
   error?: string;
@@ -126,7 +156,6 @@ interface SubmitResult {
 interface PollResult {
   task_id?: string;
   status?: string;
-  session_id?: string;
   text_reply?: string;
   artifacts?: Array<{
     artifact_id?: number;
@@ -141,20 +170,12 @@ interface PollResult {
   error?: string;
 }
 
-async function submit(
-  baseUrl: string,
-  apiKey: string,
-  query: string,
-  lang = "en",
-  sessionId?: string,
-): Promise<SubmitResult> {
-  const payload: Record<string, string> = { query, lang };
-  if (sessionId) payload.session_id = sessionId;
-  const body = JSON.stringify(payload);
+async function submit(apiKey: string, query: string): Promise<SubmitResult> {
+  const body = JSON.stringify({ query });
 
   try {
     const res = await request({
-      url: `${baseUrl}/api/agent/chat`,
+      url: `${BASE_URL}/api/agent/chat`,
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -162,26 +183,44 @@ async function submit(
       },
       body,
     });
+
+    if (res.status >= 400) {
+      return { error: `HTTP ${res.status}`, status: "error" };
+    }
     return JSON.parse(res.body);
   } catch (err: unknown) {
-    return { error: `Connection failed: ${(err as Error).message}`, status: "error" };
+    return {
+      error: `Connection failed: ${(err as Error).message}`,
+      status: "error",
+    };
   }
 }
 
-async function poll(baseUrl: string, apiKey: string, taskId: string): Promise<PollResult> {
+async function poll(apiKey: string, taskId: string): Promise<PollResult> {
   try {
     const res = await request({
-      url: `${baseUrl}/api/agent/task/${taskId}`,
+      url: `${BASE_URL}/api/agent/task/${taskId}`,
       method: "GET",
       headers: { "access-token": apiKey },
       timeoutMs: 15_000,
     });
+
+    if (res.status >= 400) {
+      return { error: `HTTP ${res.status}`, status: "error" };
+    }
     const result: PollResult = JSON.parse(res.body);
     return saveArtifacts(result);
   } catch (err: unknown) {
-    return { error: `Poll failed: ${(err as Error).message}`, status: "error" };
+    return {
+      error: `Poll failed: ${(err as Error).message}`,
+      status: "error",
+    };
   }
 }
+
+// ---------------------------------------------------------------------------
+// Image saving
+// ---------------------------------------------------------------------------
 
 function saveBase64(dataUri: string, tag?: string): string | null {
   try {
@@ -215,12 +254,15 @@ function saveArtifacts(result: PollResult): PollResult {
   return result;
 }
 
+// ---------------------------------------------------------------------------
+// Polling helpers
+// ---------------------------------------------------------------------------
+
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 async function waitForTask(
-  baseUrl: string,
   apiKey: string,
   taskId: string,
   intervalMs = POLL_INTERVAL_MS,
@@ -228,7 +270,7 @@ async function waitForTask(
 ): Promise<PollResult> {
   for (let attempt = 1; attempt <= maxPolls; attempt++) {
     await sleep(intervalMs);
-    const result = await poll(baseUrl, apiKey, taskId);
+    const result = await poll(apiKey, taskId);
     const st = result.status ?? "";
 
     if (st === "finished" || st === "error" || st === "not_found") {
@@ -237,86 +279,105 @@ async function waitForTask(
 
     if (attempt % 3 === 0) {
       const progress = result.progress ?? "processing";
-      process.stderr.write(JSON.stringify({ poll: attempt, status: st, progress }) + "\n");
+      process.stderr.write(
+        JSON.stringify({ poll: attempt, status: st, progress }) + "\n",
+      );
     }
   }
 
-  return { error: "Polling timed out", task_id: taskId, status: "timeout" } as PollResult;
+  return {
+    error: "Polling timed out",
+    task_id: taskId,
+    status: "timeout",
+  } as PollResult;
 }
 
-async function run(
-  baseUrl: string,
-  apiKey: string,
-  query: string,
-  lang = "en",
-  sessionId?: string,
-): Promise<PollResult> {
-  const submitRes = await submit(baseUrl, apiKey, query, lang, sessionId);
+async function run(apiKey: string, query: string): Promise<PollResult> {
+  const submitRes = await submit(apiKey, query);
   if (submitRes.error) return { error: submitRes.error, status: "error" };
 
   const taskId = submitRes.task_id;
-  if (!taskId) return { error: "No task_id in submit response", status: "error" };
+  if (!taskId)
+    return { error: "No task_id in submit response", status: "error" };
 
-  return waitForTask(baseUrl, apiKey, taskId);
+  return waitForTask(apiKey, taskId);
 }
 
 // ---------------------------------------------------------------------------
 // CLI entry point
 // ---------------------------------------------------------------------------
 
+function fail(msg: string): never {
+  process.stdout.write(JSON.stringify({ error: msg }) + "\n");
+  process.exit(1);
+}
+
 async function main(): Promise<void> {
   const [, , cmd, ...args] = process.argv;
+
+  const apiKey = resolveApiKey();
+  if (!apiKey && cmd && cmd !== "help") {
+    fail(
+      "api_key_not_configured. " +
+        "Please set your ChartGen API key: " +
+        'export CHARTGEN_API_KEY="your-key" ' +
+        "or save it to ~/.chartgen/api_key . " +
+        "Get a key at https://chartgen.ai/chat → Menu → API",
+    );
+  }
 
   let result: unknown;
 
   switch (cmd) {
     case "submit": {
-      const [baseUrl, apiKey, query, lang, sessionId] = args;
-      if (!baseUrl || !apiKey || !query) {
-        process.stderr.write("Usage: chartgen_api.ts submit <base_url> <api_key> <query> [lang] [session_id]\n");
+      const query = args[0];
+      if (!query) {
+        process.stderr.write('Usage: chartgen_api.ts submit "<query>"\n');
         process.exit(1);
       }
-      result = await submit(baseUrl, apiKey, query, lang || "en", sessionId || undefined);
+      result = await submit(apiKey!, query);
       break;
     }
     case "poll": {
-      const [baseUrl, apiKey, taskId] = args;
-      if (!baseUrl || !apiKey || !taskId) {
-        process.stderr.write("Usage: chartgen_api.ts poll <base_url> <api_key> <task_id>\n");
+      const taskId = args[0];
+      if (!taskId) {
+        process.stderr.write("Usage: chartgen_api.ts poll <task_id>\n");
         process.exit(1);
       }
-      result = await poll(baseUrl, apiKey, taskId);
+      result = await poll(apiKey!, taskId);
       break;
     }
     case "wait": {
-      const [baseUrl, apiKey, taskId] = args;
-      if (!baseUrl || !apiKey || !taskId) {
-        process.stderr.write("Usage: chartgen_api.ts wait <base_url> <api_key> <task_id>\n");
+      const taskId = args[0];
+      if (!taskId) {
+        process.stderr.write("Usage: chartgen_api.ts wait <task_id>\n");
         process.exit(1);
       }
-      result = await waitForTask(baseUrl, apiKey, taskId);
+      result = await waitForTask(apiKey!, taskId);
       break;
     }
     case "run": {
-      const [baseUrl, apiKey, query, lang, sessionId] = args;
-      if (!baseUrl || !apiKey || !query) {
-        process.stderr.write("Usage: chartgen_api.ts run <base_url> <api_key> <query> [lang] [session_id]\n");
+      const query = args[0];
+      if (!query) {
+        process.stderr.write('Usage: chartgen_api.ts run "<query>"\n');
         process.exit(1);
       }
-      result = await run(baseUrl, apiKey, query, lang || "en", sessionId || undefined);
+      result = await run(apiKey!, query);
       break;
     }
     default:
       process.stderr.write(
-        "ChartGen AI API Tool\n\n" +
+        `ChartGen AI API Tool  (${BASE_URL})\n\n` +
           "Commands:\n" +
-          "  submit  <base_url> <api_key> <query> [lang] [session_id]\n" +
-          "  poll    <base_url> <api_key> <task_id>          (single check)\n" +
-          "  wait    <base_url> <api_key> <task_id>          (poll until done, for background exec)\n" +
-          "  run     <base_url> <api_key> <query> [lang] [session_id]  (submit + wait)\n\n" +
-          "When a task finishes, artifact images are auto-saved to the\n" +
-          "OpenClaw media directory. The 'image_path' field in each artifact\n" +
-          "contains the full local path ready for message send.\n",
+          '  submit  "<query>"   Submit task, returns task_id\n' +
+          "  poll    <task_id>   Single status check\n" +
+          "  wait    <task_id>   Poll until done (for background exec)\n" +
+          '  run     "<query>"   submit + wait in one shot\n\n' +
+          "API key is read automatically from:\n" +
+          "  1. CHARTGEN_API_KEY environment variable\n" +
+          "  2. ~/.openclaw/skills/chartgen/config.json\n" +
+          "  3. ~/.chartgen/api_key\n\n" +
+          "Get a key: https://chartgen.ai/chat → Menu → API\n",
       );
       process.exit(1);
   }
