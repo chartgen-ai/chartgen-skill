@@ -18,7 +18,7 @@ data analysis reports — powered by [ChartGen AI](https://chartgen.ai) & [Ada.i
 
 ## What Can It Do?
 
-### Charts (ECharts)
+### Charts
 
 All chart types are rendered as high-resolution PNG images.
 
@@ -27,7 +27,7 @@ All chart types are rendered as high-resolution PNG images.
 - Waterfall Chart, Funnel Chart
 - Radar, Treemap, Sunburst, and any other ECharts-supported type
 
-### Diagrams (Mermaid)
+### Diagrams
 
 All diagrams are rendered as PNG images.
 
