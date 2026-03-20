@@ -1,5 +1,5 @@
 ---
-name: chartgen-ai
+name: chartgen
 description: >
   Use this skill when the user wants to generate charts, graphs, dashboards,
   diagrams (flowcharts, architecture diagrams, Gantt charts), data analysis

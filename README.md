@@ -3,13 +3,13 @@
 > **#1 Product of the Day on Product Hunt** 🏆
 
 Transform natural language into professional charts, dashboards, diagrams, and
-data analysis reports — powered by [ChartGen AI](https://chartgen.ai).
+data analysis reports — powered by [ChartGen AI](https://chartgen.ai) & [Ada.im](https://ada.im).
 
 <p align="center">
   <a href="https://chartgen.ai">
     <img src="https://img.shields.io/badge/ChartGen_AI-Visit_Website-blue?style=for-the-badge" alt="ChartGen AI" />
   </a>
-  <a href="https://www.producthunt.com/products/chartgen-ai">
+  <a href="https://www.producthunt.com/products/ada-2?launch=chartgen-ai-4">
     <img src="https://img.shields.io/badge/Product_Hunt-%231_Product_of_the_Day-da552f?style=for-the-badge&logo=producthunt&logoColor=white" alt="Product Hunt" />
   </a>
 </p>
@@ -18,14 +18,37 @@ data analysis reports — powered by [ChartGen AI](https://chartgen.ai).
 
 ## What Can It Do?
 
-| Feature | Description |
-|---------|-------------|
-| 📊 **Charts** | Bar, Line, Pie, Area, Scatter, Heatmap, Combo, Waterfall, Funnel |
-| 📋 **Dashboards** | Interactive multi-chart dashboards with filters |
-| 🔀 **Diagrams** | Flowcharts, architecture diagrams, mind maps, relationship maps |
-| 📅 **Gantt Charts** | Project timelines with task dependencies |
-| 📝 **Reports** | AI-powered analytical reports with embedded visualizations |
-| 📽️ **Presentations** | Auto-generated PPT slides with charts |
+### Charts (ECharts)
+
+All chart types are rendered as high-resolution PNG images.
+
+- Bar Chart, Line Chart, Pie Chart, Area Chart
+- Scatter Plot, Heatmap, Combo Chart (dual-axis)
+- Waterfall Chart, Funnel Chart
+- Radar, Treemap, Sunburst, and any other ECharts-supported type
+
+### Diagrams (Mermaid)
+
+All diagrams are rendered as PNG images.
+
+- Flowchart / Graph
+- Sequence Diagram, Class Diagram, State Diagram
+- ER Diagram (Entity-Relationship)
+- Mind Map, Timeline, Kanban Board
+
+### Gantt Charts
+
+Project timelines with task dependencies, rendered as PNG images.
+
+### Dashboards
+
+Multi-chart interactive layouts with embedded ECharts, rendered as PNG images.
+
+### PPT Generation
+
+AI-generated presentation slides with embedded visualizations (returned as raw data).
+
+---
 
 Just describe what you want in plain language — no data formatting or design
 skills required. Upload CSV/Excel files for data-driven visualizations.
@@ -34,25 +57,31 @@ skills required. Upload CSV/Excel files for data-driven visualizations.
 
 ## Installation
 
-### Option A: Install from ClawHub
+### Recommended: Natural Language Install
+
+Copy and send this message to your OpenClaw agent:
+
+> Install this skill for me: `https://github.com/chartgen-ai/chartgen-skill.git`
+
+### Install from ClawHub
 
 ```bash
-openclaw skills install chartgen-ai
+openclaw skills install chartgen
 ```
 
-### Option B: Install from GitHub
+### Install from GitHub
 
 ```bash
-openclaw skills install github:chartgen/chartgen-openclaw-skill
+openclaw skills install github:chartgen-ai/chartgen-skill
 ```
 
-### Option C: Manual Installation
+### Manual Installation
 
 1. Clone this repository into your OpenClaw skills directory:
 
 ```bash
 cd ~/.openclaw/workspace/skills
-git clone https://github.com/chartgen/chartgen-openclaw-skill.git chartgen-ai
+git clone https://github.com/chartgen-ai/chartgen-skill.git
 ```
 
 2. Refresh skills:
@@ -65,7 +94,7 @@ openclaw skills refresh
 
 ## Configuration
 
-### 1. Get Your API Key (Free)
+### 1. Get Your API Key
 
 1. Visit [chartgen.ai/chat](https://chartgen.ai/chat)
 2. Click the **menu icon** (☰) in the bottom-left corner
@@ -75,7 +104,7 @@ openclaw skills refresh
 ### 2. Configure the Skill
 
 ```bash
-openclaw config set chartgen-ai.api_key "your-api-key-here"
+openclaw config set chartgen.api_key "your-api-key-here"
 ```
 
 ### Advanced Configuration (Optional)
@@ -90,10 +119,10 @@ openclaw config set chartgen-ai.api_key "your-api-key-here"
 
 ```bash
 # Example: set language to Chinese
-openclaw config set chartgen-ai.default_lang "zh-CN"
+openclaw config set chartgen.default_lang "zh-CN"
 
 # Example: adjust polling interval
-openclaw config set chartgen-ai.poll_interval_seconds 15
+openclaw config set chartgen.poll_interval_seconds 15
 ```
 
 ---
@@ -129,31 +158,6 @@ openclaw config set chartgen-ai.poll_interval_seconds 15
 
 ---
 
-## How It Works
-
-```
-User Request → ChartGen AI API → Async Processing → Poll for Results → Display Charts
-```
-
-1. **You describe** what you want in plain language
-2. **ChartGen AI** processes your request (typically 1–3 minutes)
-3. **Automatic polling** checks the status in the background
-4. **Results delivered** — charts as images, reports as text, with download links
-
-The skill uses OpenClaw's cron scheduling for async task polling, so your
-conversation stays unblocked while charts are being generated.
-
----
-
-## Supported Languages
-
-ChartGen AI and this skill support multiple languages. The skill automatically
-detects the user's language and responds accordingly:
-
-🇺🇸 English · 🇨🇳 中文 · 🇯🇵 日本語 · 🇰🇷 한국어 · 🇩🇪 Deutsch · 🇫🇷 Français · 🇪🇸 Español
-
----
-
 ## About ChartGen AI
 
 [ChartGen AI](https://chartgen.ai) is the world's leading AI-powered data
@@ -166,25 +170,6 @@ visualization platform, developed by [Ada.im](https://ada.im).
 - 📊 **9+ chart types** — from simple bar charts to complex heatmaps
 - 🤖 **Natural language to visualization** — just describe what you need
 - 📁 **CSV/Excel support** — upload your data files directly
-- 🆓 **Free to use** — no signup required for core features
-
----
-
-## Troubleshooting
-
-| Issue | Solution |
-|-------|----------|
-| "API Key Required" message | Get a free key at [chartgen.ai/chat](https://chartgen.ai/chat) → Menu → API |
-| Task takes too long | Complex dashboards may take 3–5 min. Check with "Check task {task_id}" |
-| "Task not found" | Tasks expire after ~1 hour. Submit a new request |
-| Connection error | Verify `api_base_url` is correct and accessible |
-| Rate limit (429) | Wait 30 seconds and try again |
-
----
-
-## License
-
-MIT — see [LICENSE](LICENSE) for details.
 
 ---
 
