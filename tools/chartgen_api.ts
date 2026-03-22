@@ -31,7 +31,7 @@ const TOOL_VERSION = (() => {
 const BASE_URL =
   process.env.CHARTGEN_API_URL ?? "https://chartgen.ai";
 const POLL_INTERVAL_MS = 20_000;
-const MAX_POLLS = 30;
+const MAX_POLLS = 75;
 
 const ALLOWED_EXTENSIONS = new Set([".csv", ".xls", ".xlsx", ".tsv"]);
 
@@ -316,6 +316,11 @@ interface PollResult {
     image_path?: string;
     raw_data?: unknown;
     download_url?: string;
+    download_path?: string;
+    pptx_base64?: string;
+    page_count?: number;
+    preview_images?: string[];
+    preview_paths?: string[];
   }>;
   progress?: string;
   error?: string;
@@ -408,7 +413,7 @@ async function poll(apiKey: string, taskId: string): Promise<PollResult> {
       return { error: `HTTP ${res.status}`, status: "error" };
     }
     const result: PollResult = JSON.parse(res.body);
-    return cleanResult(result);
+    return await cleanResult(result);
   } catch (err: unknown) {
     return {
       error: `Poll failed: ${(err as Error).message}`,
@@ -421,14 +426,14 @@ async function poll(apiKey: string, taskId: string): Promise<PollResult> {
 // Image saving
 // ---------------------------------------------------------------------------
 
-function saveBase64(dataUri: string, tag?: string): string | null {
+function saveBase64(dataUri: string, tag?: string, ext = "png"): string | null {
   try {
     const marker = "base64,";
     const idx = dataUri.indexOf(marker);
     const raw = idx !== -1 ? dataUri.slice(idx + marker.length) : dataUri;
     const buf = Buffer.from(raw, "base64");
     const mediaDir = getMediaDir();
-    const name = `chartgen_${tag ?? Date.now()}.png`;
+    const name = `chartgen_${tag ?? Date.now()}.${ext}`;
     const dest = path.join(mediaDir, name);
     fs.writeFileSync(dest, buf);
     return dest;
@@ -437,7 +442,28 @@ function saveBase64(dataUri: string, tag?: string): string | null {
   }
 }
 
-function cleanResult(result: PollResult): PollResult {
+function downloadFile(url: string, tag: string, ext: string): Promise<string | null> {
+  return new Promise((resolve) => {
+    try {
+      const mediaDir = getMediaDir();
+      const dest = path.join(mediaDir, `chartgen_${tag}.${ext}`);
+      const mod = url.startsWith("https") ? require("https") : require("http");
+      const file = fs.createWriteStream(dest);
+      mod.get(url, (res: any) => {
+        if (res.statusCode === 301 || res.statusCode === 302) {
+          downloadFile(res.headers.location!, tag, ext).then(resolve);
+          return;
+        }
+        if (res.statusCode !== 200) { resolve(null); return; }
+        res.pipe(file);
+        file.on("finish", () => { file.close(); resolve(dest); });
+        file.on("error", () => resolve(null));
+      }).on("error", () => resolve(null));
+    } catch { resolve(null); }
+  });
+}
+
+async function cleanResult(result: PollResult): Promise<PollResult> {
   if (result.status !== "finished" || !result.artifacts) return result;
 
   for (const art of result.artifacts) {
@@ -452,6 +478,32 @@ function cleanResult(result: PollResult): PollResult {
     }
     delete art.image_base64;
     delete art.raw_data;
+
+    // PPT: save preview images and download pptx file
+    if (art.type === "ppt") {
+      if (art.preview_images && art.preview_images.length > 0) {
+        const paths: string[] = [];
+        for (let i = 0; i < art.preview_images.length; i++) {
+          const ptag = `${art.artifact_id ?? Date.now()}_slide${i + 1}`;
+          const p = saveBase64(art.preview_images[i], ptag);
+          if (p) paths.push(p);
+        }
+        art.preview_paths = paths;
+      }
+      delete art.preview_images;
+
+      if (art.pptx_base64) {
+        const dtag = String(art.artifact_id ?? Date.now());
+        const dp = saveBase64(art.pptx_base64, dtag, "pptx");
+        if (dp) art.download_path = dp;
+      } else if (art.download_url) {
+        const dtag = String(art.artifact_id ?? Date.now());
+        const dp = await downloadFile(art.download_url, dtag, "pptx");
+        if (dp) art.download_path = dp;
+      }
+      delete art.pptx_base64;
+      delete art.download_url;
+    }
   }
 
   // Replace artifact image placeholders in html_content with local media paths
@@ -479,6 +531,7 @@ function cleanResult(result: PollResult): PollResult {
     }
   }
 
+  delete result.session_id;
   delete result.round_id;
   delete result.user_query;
   delete result.round_data_raw;
@@ -544,8 +597,71 @@ async function run(
 // CLI entry point
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// User-facing error messages — skill just relays `user_message` to the user.
+// ---------------------------------------------------------------------------
+
+function getUserMessage(error: string): string {
+  const lower = error.toLowerCase();
+
+  if (lower.startsWith("api_key_not_configured"))
+    return ""; // handled by skill with detailed instructions
+
+  if (lower.includes("http 401") || lower.includes("http 403"))
+    return (
+      "⚠️ Your ChartGen API key is invalid or expired. " +
+      "Please check or regenerate it at https://chartgen.ai/chat → Menu → API."
+    );
+
+  if (lower.includes("http 429"))
+    return (
+      "⏳ Rate limit reached. Please wait a moment and try again."
+    );
+
+  if (lower.includes("http 5"))
+    return (
+      "⚠️ ChartGen service is temporarily unavailable. Please try again in a few minutes."
+    );
+
+  if (lower.includes("connection failed") || lower.includes("request timed out"))
+    return (
+      "⚠️ Could not connect to ChartGen. Please check your network and try again."
+    );
+
+  if (lower.includes("unsupported file type"))
+    return (
+      "⚠️ " + error + "\nPlease re-send with supported file types: CSV, XLS, XLSX, TSV."
+    );
+
+  if (lower.includes("file not accessible") || lower.includes("not a file") || lower.includes("file is empty"))
+    return "⚠️ " + error + "\nPlease verify the file path and try again.";
+
+  if (lower.includes("upload failed"))
+    return "⚠️ File upload failed. Please try again.";
+
+  if (lower === "upgrade_required")
+    return ""; // handled by skill via references/upgrade-skill.md
+
+  return "⚠️ " + error;
+}
+
+function enrichError(result: Record<string, unknown>): Record<string, unknown> {
+  if (result.error && typeof result.error === "string") {
+    const err = result.error as string;
+    const lower = err.toLowerCase();
+    if (lower === "upgrade_required" || lower.startsWith("api_key_not_configured")) {
+      return result;
+    }
+    const msg = getUserMessage(err);
+    if (msg) result.user_message = msg;
+  }
+  return result;
+}
+
 function fail(msg: string): never {
-  process.stdout.write(JSON.stringify({ error: msg }) + "\n");
+  process.stdout.write(
+    JSON.stringify(enrichError({ error: msg })) + "\n",
+  );
   process.exit(1);
 }
 
@@ -622,7 +738,7 @@ async function main(): Promise<void> {
           "Commands:\n" +
           '  submit  "<query>" <channel> [file1 file2 ...]   Submit task\n' +
           "  poll    <task_id>                                Single status check\n" +
-          "  wait    <task_id>                                Poll until done\n" +
+          "  wait    <task_id>                                Poll until done (~25 min max)\n" +
           '  run     "<query>" <channel> [file1 file2 ...]   submit + wait\n\n' +
           "Supported file types: " +
           [...ALLOWED_EXTENSIONS].join(", ") +
@@ -636,6 +752,9 @@ async function main(): Promise<void> {
       process.exit(1);
   }
 
+  if (result && typeof result === "object" && (result as any).error) {
+    enrichError(result as Record<string, unknown>);
+  }
   process.stdout.write(JSON.stringify(result, null, 2) + "\n");
 }
 
