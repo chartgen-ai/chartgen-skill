@@ -17,10 +17,18 @@ import * as http from "http";
 import * as fs from "fs";
 import * as os from "os";
 import * as path from "path";
-import { URL } from "url";
+import { URL, fileURLToPath } from "url";
+
+const __toolDir = (() => {
+  try {
+    return path.dirname(fileURLToPath(import.meta.url));
+  } catch {
+    return __dirname;
+  }
+})();
 
 const TOOL_VERSION = (() => {
-  const versionFile = path.resolve(__dirname, "..", "VERSION");
+  const versionFile = path.resolve(__toolDir, "..", "VERSION");
   try {
     return fs.readFileSync(versionFile, "utf-8").trim();
   } catch {
