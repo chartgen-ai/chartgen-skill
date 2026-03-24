@@ -20,7 +20,7 @@ const os = require("os");
 const path = require("path");
 const { URL } = require("url");
 
-const TOOL_VERSION = "1.0.5";
+const TOOL_VERSION = "1.0.6";
 
 const BASE_URL = process.env.CHARTGEN_API_URL || "https://chartgen.ai";
 const POLL_INTERVAL_MS = 20_000;
