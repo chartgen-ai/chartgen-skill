@@ -20,7 +20,7 @@ const os = require("os");
 const path = require("path");
 const { URL } = require("url");
 
-const TOOL_VERSION = "1.0.19";
+const TOOL_VERSION = "1.0.21";
 
 const BASE_URL = process.env.CHARTGEN_API_URL || "https://chartgen.ai";
 const POLL_INTERVAL_MS = 20_000;
@@ -320,18 +320,33 @@ async function poll(apiKey, taskId) {
 }
 
 // ---------------------------------------------------------------------------
+// Path-safe helpers — prevent path traversal from API-provided identifiers
+// ---------------------------------------------------------------------------
+
+function sanitizeTag(tag) {
+  const s = String(tag || Date.now());
+  return s.replace(/[^a-zA-Z0-9_\-]/g, "_").slice(0, 128) || String(Date.now());
+}
+
+function sanitizeExt(ext) {
+  const s = String(ext || "png").replace(/^\./, "");
+  return s.replace(/[^a-zA-Z0-9]/g, "").slice(0, 10) || "bin";
+}
+
+// ---------------------------------------------------------------------------
 // Image saving
 // ---------------------------------------------------------------------------
 
 function saveBase64(dataUri, tag, ext) {
-  ext = ext || "png";
+  ext = sanitizeExt(ext || "png");
+  tag = sanitizeTag(tag);
   try {
     const marker = "base64,";
     const idx = dataUri.indexOf(marker);
     const raw = idx !== -1 ? dataUri.slice(idx + marker.length) : dataUri;
     const buf = Buffer.from(raw, "base64");
     const mediaDir = getMediaDir();
-    const name = `chartgen_${tag || Date.now()}.${ext}`;
+    const name = `chartgen_${tag}.${ext}`;
     const dest = path.join(mediaDir, name);
     fs.writeFileSync(dest, buf);
     return dest;
@@ -341,6 +356,8 @@ function saveBase64(dataUri, tag, ext) {
 }
 
 function downloadFile(url, tag, ext) {
+  tag = sanitizeTag(tag);
+  ext = sanitizeExt(ext);
   return new Promise((resolve) => {
     try {
       const mediaDir = getMediaDir();

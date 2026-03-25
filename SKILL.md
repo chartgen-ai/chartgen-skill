@@ -160,5 +160,5 @@ Read the output JSON `status`:
 - Prefer background/cron polling over blocking. Clean up crons after completion.
 - Always use `image_path` from results, never show raw base64.
 - Each request is independent — don't suggest modifying previous charts.
-- **NEVER skip STEP 5 items**: always summarize `text_reply`, send artifact images/files, show `edit_url`, and suggest next steps — even when artifacts are present.
+- **NEVER skip STEP 5 items**: always summarize `text_reply`, **send artifact images/files**, show `edit_url`, and suggest next steps — even when artifacts are present.
 
