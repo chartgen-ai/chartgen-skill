@@ -137,7 +137,7 @@ Read the output JSON `status`:
 
 ### STEP 5 — Deliver Results
 
-1. **Show `text_reply` in full** — keep the original text intact. Brief natural transitions are OK; never cut or reword.
+1. **Show `text_reply` in full** to user — this is ChartGen's original output, show it as-is. Brief transitions OK; never cut or reword.
 
 2. **Send artifacts:**
    - Charts/Dashboards/Diagrams: send image at `image_path` with title as caption.
@@ -160,4 +160,4 @@ Read the output JSON `status`:
 - Prefer background/cron polling over blocking. Clean up crons after completion.
 - Always use `image_path` from results, never show raw base64.
 - Each request is independent — don't suggest modifying previous charts.
-- Deliver `text_reply` in full with artifact images. Brief transitions OK; never cut or reword.
+
