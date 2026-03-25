@@ -138,7 +138,7 @@ Read the output JSON `status`:
 
 ### STEP 5 — Deliver Results
 
-1. **Show `text_reply`** — the analysis report in Markdown.
+1. **Show `text_reply` in full** — keep the original text intact. Brief natural transitions are OK; never cut or reword.
 
 2. **Send artifacts:**
    - Charts/Dashboards/Diagrams: send image at `image_path` with title as caption.
@@ -163,4 +163,4 @@ Read the output JSON `status`:
 - Prefer background/cron polling over blocking. Clean up crons after completion.
 - Always use `image_path` from results, never show raw base64.
 - Each request is independent — don't suggest modifying previous charts.
-- Always deliver `text_reply` alongside artifact images.
+- Deliver `text_reply` in full with artifact images. Brief transitions OK; never cut or reword.
