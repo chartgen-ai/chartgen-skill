@@ -48,9 +48,9 @@ Dashboards (multi-chart layouts).
 ### STEP 1 — Confirm Before Submitting
 
 Always respond in the user's language. **Must** include numbered options, each on its own line:
-> **1** — Go ahead
-> **2** — Modify
-> **0** — Cancel
+> **1** ✅ Go ahead
+> **2** ✏️ Modify
+> **0** ❌ Cancel
 
 **Confirmation rules:**
 1. **Cancel = abandon forever.** Never proceed with a cancelled task.
@@ -63,20 +63,20 @@ Always respond in the user's language. **Must** include numbered options, each o
 
 **File upload:** Do NOT submit immediately. Recommend 3–5 analysis tasks (numbered, noting which files). Each option's text is the exact query that will be submitted. User picks a number, types custom text, or cancels.
 
-Text request example (adapt to language):
-> I'll submit to **ChartGen**:
+Text request example (**adapt to language**):
+> Sure! Here's what I'll ask **ChartGen** to do for you:
 > 📊 **"Generate a monthly sales trend line chart for 2025"**
-> **1** — Go ahead
-> **2** — Modify
-> **0** — Cancel
+> **1** ✅ Go ahead
+> **2** ✏️ Modify
+> **0** ❌ Cancel
 
-File upload example (adapt to language):
-> I received your files! Choose a task for **ChartGen** (the text shown will be submitted as-is):
+File upload example (**adapt to language**):
+> Got your files! Here are a few things **ChartGen** can do — pick one or tell me what you'd like:
 > **1.** 📊 "Monthly order trend chart" — *orders.xlsx*
 > **2.** 🥧 "Category breakdown pie chart" — *orders.xlsx, products.xlsx*
 > **3.** 📋 "Full analysis report with all files"
 > **0.** ❌ Cancel
-> Or type your own question.
+> Or just type your own request!
 
 ---
 
