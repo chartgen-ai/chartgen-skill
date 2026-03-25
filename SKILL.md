@@ -57,9 +57,8 @@ Always respond in the user's language. **Must** include numbered options, each o
 2. **Replies bind to the most recent prompt only.** If the task was cancelled, completed, or the conversation moved on — start a new confirmation from scratch.
 3. **When in doubt, ask** — never guess.
 
-**WYSIWYG rule**: The query shown to the user in the confirmation **must be exactly** what you will submit to the tool. Never show one thing and submit another.
-
-**Text request (no files):** Show the user's original text as the query to submit. Present with options 1/2/0. If user says 1 or any affirmative → submit that exact text in STEP 2. If user modifies → use their modified version as the new query. If cancel → discard.
+**Query rule — text requests (no files):**
+The `<query>` is **always the user's original message, copied word-for-word**. Do NOT translate, rephrase, expand, polish, or "improve" it in any way. Show this exact text in the confirmation. If user confirms → submit this exact text. If user edits → the edited text becomes the new verbatim query.
 
 **File upload:** Do NOT submit immediately. Recommend 3–5 analysis tasks (numbered, noting which files). Each option's text is the exact query that will be submitted. User picks a number, types custom text, or cancels.
 
@@ -93,7 +92,7 @@ File upload example (**adapt to language**):
 ```
 node tools/chartgen_api.js submit "<query>" <channel> [files...]
 ```
-`<query>`: **Use the user's original text as-is.** Do NOT rewrite, expand, embellish, or reinterpret. ChartGen has its own AI — just pass the raw user intent. If the user confirmed a suggested task from STEP 1, use exactly that confirmed text.
+`<query>`: **Copy-paste the confirmed text from STEP 1** — the user's original words or, for file uploads, the chosen option text. Never rewrite.
 `<channel>`: current channel name, e.g. `Signal`, `WhatsApp`, `Web`.
 `[files...]`: optional, space-separated absolute paths to data files.
 
@@ -157,8 +156,6 @@ Read the output JSON `status`:
 
 - Always respond in the user's language.
 - Always confirm before submitting — never call the tool without explicit confirmation.
-- **Pass the user's original query verbatim** to the tool — never rewrite, expand, or paraphrase. ChartGen handles interpretation itself.
-- Recommend analysis options when user uploads files.
 - Never expose API key. Never fabricate visualizations.
 - Prefer background/cron polling over blocking. Clean up crons after completion.
 - Always use `image_path` from results, never show raw base64.
